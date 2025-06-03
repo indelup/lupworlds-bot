@@ -1,5 +1,6 @@
 import { WebSocket } from "ws";
 import "dotenv/config";
+import Redis from "ioredis";
 
 const env = process.env;
 const BOT_USER_ID = env.BOT_USER_ID;
@@ -8,8 +9,12 @@ const CLIENT_ID = env.CLIENT_ID;
 const EVENTSUB_WEBSOCKET_URL = "wss://eventsub.wss.twitch.tv/ws";
 
 let websocketSessionID;
+export const redisClient = new Redis(
+  `rediss://default:${env.REDIS_PASSWORD}@${env.REDIS_ENDPOINT}:${env.REDIS_PORT}`
+);
 
-export const getAuth = async (token: string) => {
+export const checkToken = async () => {
+  const token = await redisClient.get("twitchToken");
   const response = await fetch("https://id.twitch.tv/oauth2/validate", {
     method: "GET",
     headers: {
@@ -17,17 +22,47 @@ export const getAuth = async (token: string) => {
     },
   });
 
-  if (response.status != 200) {
-    const data = await response.json();
+  if (response.status == 401) {
+    const newTokenData = await refreshToken();
+    await redisClient.set("twitchToken", newTokenData.access_token);
+    await redisClient.set("twitchRefresh", newTokenData.refresh_token);
+    return true;
+  } else if (response.status != 200) {
     console.error(
       "Token is not valid. /oauth2/validate returned status code " +
         response.status
     );
+    return false;
+  }
+  return true;
+};
+
+const refreshToken = async () => {
+  const refreshToken = await redisClient.get("twitchRefresh");
+
+  const formData = new URLSearchParams();
+  formData.append("client_id", env.CLIENT_ID);
+  formData.append("client_secret", env.CLIENT_SECRET);
+  formData.append("grant_type", "refresh_token");
+  formData.append("refresh_token", refreshToken);
+
+  const response = await fetch("https://id.twitch.tv/oauth2/token", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: formData,
+  });
+
+  if (response.status != 200) {
+    const data = await response.json();
+    console.error("Could not retrieve new token");
     console.error(data);
     process.exit(1);
   }
 
-  console.log("Estamos al aire!!");
+  const data = await response.json();
+  return data;
 };
 
 export const startWebSocketClient = (token: string, channelId: string) => {
