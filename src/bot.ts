@@ -1,6 +1,7 @@
 import { WebSocket } from "ws";
 import "dotenv/config";
-import Redis from "ioredis";
+import { redisClient } from "./redis";
+import { performGachaPull } from "./gacha";
 
 const env = process.env;
 const BOT_USER_ID = env.BOT_USER_ID;
@@ -9,9 +10,7 @@ const CLIENT_ID = env.CLIENT_ID;
 const EVENTSUB_WEBSOCKET_URL = "wss://eventsub.wss.twitch.tv/ws";
 
 let websocketSessionID;
-export const redisClient = new Redis(
-  `rediss://default:${env.REDIS_PASSWORD}@${env.REDIS_ENDPOINT}:${env.REDIS_PORT}`
-);
+export { redisClient };
 
 export const checkToken = async () => {
   const token = await redisClient.get("twitchToken");
@@ -89,16 +88,20 @@ const handleWebSocketMessage = (
     const subscriptionType = data.metadata.subscription_type;
 
     switch (subscriptionType) {
-      case "channel.chat.message":
+      case "channel.chat.message": {
+        const event = data.payload.event;
         console.log(
-          `MSG #${data.payload.event.broadcaster_user_login} <${data.payload.event.chatter_user_login}> ${data.payload.event.message.text}`
+          `MSG #${event.broadcaster_user_login} <${event.chatter_user_login}> ${event.message.text}`
         );
 
-        if (data.payload.event.message.text.trim() == "!gacha") {
-          sendChatMessage("Haz hecho una tirada de gacha!", token, channelId);
+        if (event.message.text.trim() === "!gacha") {
+          performGachaPull(channelId, event.chatter_user_id, event.chatter_user_login, event.chatter_user_name)
+            .then((msg) => sendChatMessage(msg, token, channelId))
+            .catch((err) => console.error("Gacha pull error:", err));
         }
 
         break;
+      }
     }
   }
 };

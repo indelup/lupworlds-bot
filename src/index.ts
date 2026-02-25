@@ -1,5 +1,6 @@
 import express from "express";
-import { startWebSocketClient, checkToken, redisClient } from "./bot";
+import { startWebSocketClient, checkToken } from "./bot";
+import { redisClient } from "./redis";
 import "dotenv/config";
 
 const app = express();
