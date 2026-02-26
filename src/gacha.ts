@@ -10,6 +10,16 @@ import {
     upsertPlayerData,
 } from "./api";
 
+// --- Streamer cache (fixed per bot instance) ---
+
+let cachedStreamer: import("@melda/lupworlds-types").User | null = null;
+
+const getStreamer = async (channelId: string) => {
+    if (cachedStreamer) return cachedStreamer;
+    cachedStreamer = await getUser(channelId);
+    return cachedStreamer;
+};
+
 // --- In-memory cache for world assets (5-minute TTL) ---
 
 interface WorldCache {
@@ -81,6 +91,8 @@ const addToInventory = (
 
 // --- User lookup / on-the-fly creation ---
 
+const pendingCreations = new Map<string, Promise<User | null>>();
+
 const getOrCreateUser = async (
     twitchId: string,
     displayName: string,
@@ -88,12 +100,19 @@ const getOrCreateUser = async (
     const existing = await getUser(twitchId);
     if (existing) return existing;
 
-    return createUser({
+    // Coalesce concurrent creation requests for the same twitchId
+    const inflight = pendingCreations.get(twitchId);
+    if (inflight) return inflight;
+
+    const promise = createUser({
         twitchId,
         alias: displayName,
         allowedRoles: [ROLE.VIEWER],
         worldIds: [],
-    });
+    }).finally(() => pendingCreations.delete(twitchId));
+
+    pendingCreations.set(twitchId, promise);
+    return promise;
 };
 
 // --- Public command handlers ---
@@ -106,7 +125,7 @@ export const performGachaPull = async (
 ): Promise<string> => {
     const tag = `@${viewerLogin}`;
 
-    const streamer = await getUser(channelId);
+    const streamer = await getStreamer(channelId);
     if (!streamer) return `${tag} No se encontró el streamer en el sistema.`;
 
     const worldId = streamer.worldIds?.[0];
