@@ -9,7 +9,12 @@ const CLIENT_ID = env.CLIENT_ID;
 
 const EVENTSUB_WEBSOCKET_URL = "wss://eventsub.wss.twitch.tv/ws";
 
-let websocketSessionID;
+interface ActiveSession {
+  botWs: WebSocket;
+  streamerWs: WebSocket;
+}
+
+const activeSessions = new Map<string, ActiveSession>();
 export { redisClient };
 
 export const checkToken = async () => {
@@ -64,45 +69,43 @@ const refreshToken = async () => {
   return data;
 };
 
-export const startWebSocketClient = (token: string, channelId: string) => {
-  const websocketClient = new WebSocket(EVENTSUB_WEBSOCKET_URL);
-  websocketClient.on("error", console.error);
-  websocketClient.on("open", () => {
-    console.log(`WebSocket connection opened to ${EVENTSUB_WEBSOCKET_URL}`);
-  });
-  websocketClient.on("message", (data) => {
-    handleWebSocketMessage(JSON.parse(data.toString()), token, channelId);
-  });
-};
-
-const handleWebSocketMessage = (
-  data: any,
+const subscribe = async (
   token: string,
-  channelId: string
+  sessionId: string,
+  type: string,
+  version: string,
+  condition: Record<string, string>
 ) => {
-  const messageType = data.metadata.message_type;
-  if (messageType === "session_welcome") {
-    websocketSessionID = data.payload.session.id;
-    registerEventSubListeners(token, channelId);
-  } else if (messageType === "notification") {
-    const subscriptionType = data.metadata.subscription_type;
-
-    switch (subscriptionType) {
-      case "channel.chat.message": {
-        const event = data.payload.event;
-        console.log(
-          `MSG #${event.broadcaster_user_login} <${event.chatter_user_login}> ${event.message.text}`
-        );
-
-        if (event.message.text.trim() === "!gacha") {
-          performGachaPull(channelId, event.chatter_user_id, event.chatter_user_login, event.chatter_user_name)
-            .then((msg) => sendChatMessage(msg, token, channelId))
-            .catch((err) => console.error("Gacha pull error:", err));
-        }
-
-        break;
-      }
+  const response = await fetch(
+    "https://api.twitch.tv/helix/eventsub/subscriptions",
+    {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer " + token,
+        "Client-Id": CLIENT_ID,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        type,
+        version,
+        condition,
+        transport: {
+          method: "websocket",
+          session_id: sessionId,
+        },
+      }),
     }
+  );
+  const data = await response.json();
+
+  if (response.status != 202) {
+    console.error(
+      `Failed to subscribe to ${type}. API call returned status code ${response.status}`
+    );
+    console.error(data);
+    process.exit(1);
+  } else {
+    console.log(`Subscribed to ${type} [${data.data[0].id}]`);
   }
 };
 
@@ -134,40 +137,97 @@ const sendChatMessage = async (
   }
 };
 
-const registerEventSubListeners = async (token: string, channelId: string) => {
-  const response = await fetch(
-    "https://api.twitch.tv/helix/eventsub/subscriptions",
-    {
-      method: "POST",
-      headers: {
-        Authorization: "Bearer " + token,
-        "Client-Id": CLIENT_ID,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        type: "channel.chat.message",
-        version: "1",
-        condition: {
-          broadcaster_user_id: channelId,
-          user_id: BOT_USER_ID,
-        },
-        transport: {
-          method: "websocket",
-          session_id: websocketSessionID,
-        },
-      }),
-    }
-  );
-  const data = await response.json();
+const openWebSocket = (
+  onReady: (sessionId: string) => Promise<void>,
+  onNotification: (data: any) => void,
+  onClose: () => void,
+): WebSocket => {
+  const ws = new WebSocket(EVENTSUB_WEBSOCKET_URL);
 
-  if (response.status != 202) {
-    console.error(
-      "Failed to subscribe to channel.chat.message. API call returned status code " +
-        response.status
-    );
-    console.error(data);
-    process.exit(1);
-  } else {
-    console.log(`Subscribed to channel.chat.message [${data.data[0].id}]`);
-  }
+  ws.on("error", console.error);
+  ws.on("open", () => {
+    console.log(`WebSocket connection opened to ${EVENTSUB_WEBSOCKET_URL}`);
+  });
+  ws.on("close", onClose);
+  ws.on("message", (raw) => {
+    const data = JSON.parse(raw.toString());
+    const messageType = data.metadata.message_type;
+    if (messageType === "session_welcome") {
+      onReady(data.payload.session.id).catch(console.error);
+    } else if (messageType === "notification") {
+      onNotification(data);
+    }
+  });
+
+  return ws;
+};
+
+export const startWebSocketClient = (
+  botToken: string,
+  streamerToken: string,
+  channelId: string
+): boolean => {
+  if (activeSessions.has(channelId)) return false;
+
+  const cleanup = () => {
+    activeSessions.delete(channelId);
+    console.log(`Bot stopped for channel ${channelId}`);
+  };
+
+  const botWs = openWebSocket(
+    async (sessionId) => {
+      await subscribe(botToken, sessionId, "channel.chat.message", "1", {
+        broadcaster_user_id: channelId,
+        user_id: BOT_USER_ID,
+      });
+    },
+    (data) => {
+      if (data.metadata.subscription_type !== "channel.chat.message") return;
+      const event = data.payload.event;
+      console.log(
+        `MSG #${event.broadcaster_user_login} <${event.chatter_user_login}> ${event.message.text}`
+      );
+      if (event.message.text.trim() === "!gacha") {
+        performGachaPull(channelId, event.chatter_user_id, event.chatter_user_login, event.chatter_user_name)
+          .then((msg) => sendChatMessage(msg, botToken, channelId))
+          .catch((err) => console.error("Gacha pull error:", err));
+      }
+    },
+    cleanup,
+  );
+
+  const streamerWs = openWebSocket(
+    async (sessionId) => {
+      await subscribe(
+        streamerToken,
+        sessionId,
+        "channel.channel_points_custom_reward_redemption.add",
+        "1",
+        { broadcaster_user_id: channelId }
+      );
+    },
+    (data) => {
+      if (data.metadata.subscription_type !== "channel.channel_points_custom_reward_redemption.add") return;
+      const event = data.payload.event;
+      console.log(
+        `REDEEM #${event.broadcaster_user_login} <${event.user_login}> ${event.reward.title} [reward_id: ${event.reward.id}]`
+      );
+      if (env.GACHA_REWARD_NAME && event.reward.title !== env.GACHA_REWARD_NAME) return;
+      performGachaPull(channelId, event.user_id, event.user_login, event.user_name)
+        .then((msg) => sendChatMessage(msg, botToken, channelId))
+        .catch((err) => console.error("Gacha pull error:", err));
+    },
+    cleanup,
+  );
+
+  activeSessions.set(channelId, { botWs, streamerWs });
+  return true;
+};
+
+export const stopWebSocketClient = (channelId: string): boolean => {
+  const session = activeSessions.get(channelId);
+  if (!session) return false;
+  session.botWs.close();
+  session.streamerWs.close();
+  return true;
 };

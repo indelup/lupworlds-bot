@@ -12,31 +12,29 @@ import {
 
 // --- Streamer cache (fixed per bot instance) ---
 
-let cachedStreamer: import("@melda/lupworlds-types").User | null = null;
+const streamerCache = new Map<string, import("@melda/lupworlds-types").User>();
 
 const getStreamer = async (channelId: string) => {
-    if (cachedStreamer) return cachedStreamer;
-    cachedStreamer = await getUser(channelId);
-    return cachedStreamer;
+    const cached = streamerCache.get(channelId);
+    if (cached) return cached;
+    const streamer = await getUser(channelId);
+    if (streamer) streamerCache.set(channelId, streamer);
+    return streamer;
 };
 
-// --- In-memory cache for world assets (5-minute TTL) ---
+// --- In-memory cache for world assets (fixed per bot instance) ---
 
 interface WorldCache {
     banners: Banner[];
     characters: { id: string; name: string; rarity: number }[];
     materials: { id: string; name: string; rarity: number }[];
-    fetchedAt: number;
 }
 
 const worldCache = new Map<string, WorldCache>();
-const CACHE_TTL_MS = 5 * 60 * 1000;
 
 const getWorldAssets = async (worldId: string): Promise<WorldCache> => {
     const cached = worldCache.get(worldId);
-    if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
-        return cached;
-    }
+    if (cached) return cached;
 
     const [banners, characters, materials] = await Promise.all([
         getBanners(worldId),
@@ -48,7 +46,6 @@ const getWorldAssets = async (worldId: string): Promise<WorldCache> => {
         banners: banners ?? [],
         characters: characters ?? [],
         materials: materials ?? [],
-        fetchedAt: Date.now(),
     };
     worldCache.set(worldId, data);
     return data;

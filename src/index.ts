@@ -1,5 +1,5 @@
 import express from "express";
-import { startWebSocketClient, checkToken } from "./bot";
+import { startWebSocketClient, stopWebSocketClient, checkToken } from "./bot";
 import { redisClient } from "./redis";
 import "dotenv/config";
 
@@ -11,18 +11,46 @@ app.get("/", (req, res) => {
 });
 
 app.get("/start", async (req, res) => {
-  const channelId = req.query.channelId;
-  const tokenValid = await checkToken();
+  const channelId = req.query.channelId as string;
+  const streamerToken = req.query.streamerToken as string;
 
-  if (!tokenValid) {
-    res.send("Invalid token");
+  if (!channelId) {
+    res.status(400).send("channelId is required");
+    return;
+  }
+  if (!streamerToken) {
+    res.status(400).send("streamerToken is required");
     return;
   }
 
-  const token = await redisClient.get("twitchToken");
-  startWebSocketClient(token, channelId);
+  const tokenValid = await checkToken();
+  if (!tokenValid) {
+    res.status(401).send("Bot token is invalid");
+    return;
+  }
+
+  const botToken = await redisClient.get("twitchToken");
+  const started = startWebSocketClient(botToken, streamerToken, channelId);
+  if (!started) {
+    res.status(409).send("Bot ya está activo para este canal.");
+    return;
+  }
 
   res.send("Bot inicializado!!");
+});
+
+app.get("/stop", (req, res) => {
+  const channelId = req.query.channelId as string;
+  if (!channelId) {
+    res.status(400).send("channelId is required");
+    return;
+  }
+  const stopped = stopWebSocketClient(channelId);
+  if (!stopped) {
+    res.status(404).send("No hay bot activo para este canal.");
+    return;
+  }
+  res.send("Bot detenido!");
 });
 
 app.listen(port, () => {
