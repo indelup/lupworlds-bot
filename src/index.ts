@@ -1,6 +1,7 @@
 import express from "express";
 import { startWebSocketClient, stopWebSocketClient, checkToken } from "./bot";
 import { redisClient } from "./redis";
+import { attachOverlayServer } from "./broadcast";
 import "dotenv/config";
 
 const app = express();
@@ -53,6 +54,8 @@ app.get("/stop", (req, res) => {
   res.send("Bot detenido!");
 });
 
-app.listen(port, () => {
+const server = app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
 });
+
+attachOverlayServer(server);

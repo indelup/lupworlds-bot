@@ -187,11 +187,6 @@ export const startWebSocketClient = (
       console.log(
         `MSG #${event.broadcaster_user_login} <${event.chatter_user_login}> ${event.message.text}`
       );
-      if (event.message.text.trim() === "!gacha") {
-        performGachaPull(channelId, event.chatter_user_id, event.chatter_user_login, event.chatter_user_name)
-          .then((msg) => sendChatMessage(msg, botToken, channelId))
-          .catch((err) => console.error("Gacha pull error:", err));
-      }
     },
     cleanup,
   );

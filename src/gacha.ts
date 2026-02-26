@@ -1,4 +1,4 @@
-import type { Banner, BannerBag, BannerBagItem, GachaItem, PlayerWorldData, User } from "@melda/lupworlds-types";
+import type { Banner, BannerBag, BannerBagItem, Character, GachaItem, Material, PlayerWorldData, User } from "@melda/lupworlds-types";
 import { ROLE } from "@melda/lupworlds-types";
 import {
     getUser,
@@ -9,6 +9,7 @@ import {
     getPlayerData,
     upsertPlayerData,
 } from "./api";
+import { broadcast } from "./broadcast";
 
 // --- Streamer cache (fixed per bot instance) ---
 
@@ -26,8 +27,8 @@ const getStreamer = async (channelId: string) => {
 
 interface WorldCache {
     banners: Banner[];
-    characters: { id: string; name: string; rarity: number }[];
-    materials: { id: string; name: string; rarity: number }[];
+    characters: Character[];
+    materials: Material[];
 }
 
 const worldCache = new Map<string, WorldCache>();
@@ -145,15 +146,18 @@ export const performGachaPull = async (
 
     let name: string;
     let rarity: number;
+    let foundItem: Character | Material | undefined;
 
     if (bagItem.type === "character") {
         const char = characters.find((c) => c.id === bagItem.itemId);
         name = char?.name ?? "Personaje desconocido";
         rarity = char?.rarity ?? 1;
+        foundItem = char;
     } else {
         const mat = materials.find((m) => m.id === bagItem.itemId);
         name = mat?.name ?? "Material desconocido";
         rarity = mat?.rarity ?? 1;
+        foundItem = mat;
     }
 
     // Ensure the viewer has an app account, creating one on the fly if needed
@@ -169,6 +173,10 @@ export const performGachaPull = async (
     };
     const updated = addToInventory(current, bagItem.type, bagItem.itemId);
     await upsertPlayerData(user.id, worldId, updated);
+
+    if (foundItem) {
+        broadcast({ channelId, viewerLogin, itemType: bagItem.type, item: foundItem });
+    }
 
     const stars = "★".repeat(rarity);
     const typeLabel = bagItem.type === "character" ? "personaje" : "material";
