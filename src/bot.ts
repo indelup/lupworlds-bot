@@ -207,8 +207,7 @@ export const startWebSocketClient = (
       console.log(
         `REDEEM #${event.broadcaster_user_login} <${event.user_login}> ${event.reward.title} [reward_id: ${event.reward.id}]`
       );
-      if (env.GACHA_REWARD_NAME && event.reward.title !== env.GACHA_REWARD_NAME) return;
-      performGachaPull(channelId, event.user_id, event.user_login, event.user_name)
+      performGachaPull(channelId, event.user_id, event.user_login, event.user_name, event.reward.id)
         .then((msg) => sendChatMessage(msg, botToken, channelId))
         .catch((err) => console.error("Gacha pull error:", err));
     },

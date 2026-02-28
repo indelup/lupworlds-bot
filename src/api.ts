@@ -2,6 +2,7 @@ import "dotenv/config";
 import axios from "axios";
 import type {
     User,
+    World,
     Banner,
     Character,
     Material,
@@ -41,6 +42,9 @@ const safePut = async <T>(path: string, body: unknown): Promise<T | null> => {
 
 export const getUser = (twitchId: string) =>
     safeGet<User>(`/users/${twitchId}`);
+
+export const getWorld = (worldId: string) =>
+    safeGet<World>(`/worlds/${worldId}`);
 
 export const createUser = (body: Omit<User, "id">) =>
     safePost<User>(`/users`, body);

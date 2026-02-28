@@ -1,8 +1,9 @@
-import type { Banner, BannerBag, BannerBagItem, Character, GachaItem, Material, PlayerWorldData, User } from "@melda/lupworlds-types";
+import type { Banner, BannerBag, BannerBagItem, Character, GachaItem, Material, PlayerWorldData, User, World } from "@melda/lupworlds-types";
 import { ROLE } from "@melda/lupworlds-types";
 import {
     getUser,
     createUser,
+    getWorld,
     getBanners,
     getCharacters,
     getMaterials,
@@ -26,6 +27,7 @@ const getStreamer = async (channelId: string) => {
 // --- In-memory cache for world assets (fixed per bot instance) ---
 
 interface WorldCache {
+    world: World;
     banners: Banner[];
     characters: Character[];
     materials: Material[];
@@ -33,17 +35,21 @@ interface WorldCache {
 
 const worldCache = new Map<string, WorldCache>();
 
-const getWorldAssets = async (worldId: string): Promise<WorldCache> => {
+const getWorldAssets = async (worldId: string): Promise<WorldCache | null> => {
     const cached = worldCache.get(worldId);
     if (cached) return cached;
 
-    const [banners, characters, materials] = await Promise.all([
+    const [world, banners, characters, materials] = await Promise.all([
+        getWorld(worldId),
         getBanners(worldId),
         getCharacters(worldId),
         getMaterials(worldId),
     ]);
 
+    if (!world) return null;
+
     const data: WorldCache = {
+        world,
         banners: banners ?? [],
         characters: characters ?? [],
         materials: materials ?? [],
@@ -120,6 +126,7 @@ export const performGachaPull = async (
     viewerTwitchId: string,
     viewerLogin: string,
     viewerDisplayName: string,
+    redeemId: string,
 ): Promise<string> => {
     const tag = `@${viewerLogin}`;
 
@@ -129,12 +136,16 @@ export const performGachaPull = async (
     const worldId = streamer.worldIds?.[0];
     if (!worldId) return `${tag} El streamer no tiene un mundo configurado.`;
 
-    const { banners, characters, materials } = await getWorldAssets(worldId);
+    const assets = await getWorldAssets(worldId);
+    if (!assets) return `${tag} No se pudo cargar el mundo.`;
 
-    if (banners.length === 0)
-        return `${tag} No hay banners activos en este momento.`;
+    const { world, banners, characters, materials } = assets;
 
-    const banner = banners[0];
+    const mapping = world.redeems?.find((r) => r.redeemId === redeemId);
+    if (!mapping) return `${tag} Este redeem no está vinculado a ningún banner.`;
+
+    const banner = banners.find((b) => b.id === mapping.bannerId);
+    if (!banner) return `${tag} El banner configurado para este redeem no existe.`;
     if (!banner.bags || banner.bags.length === 0)
         return `${tag} El banner no tiene bolsas configuradas.`;
 
