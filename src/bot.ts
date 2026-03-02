@@ -221,7 +221,12 @@ export const startWebSocketClient = (
 export const stopWebSocketClient = (channelId: string): boolean => {
   const session = activeSessions.get(channelId);
   if (!session) return false;
+  activeSessions.delete(channelId);
   session.botWs.close();
   session.streamerWs.close();
   return true;
+};
+
+export const isSessionActive = (channelId: string): boolean => {
+  return activeSessions.has(channelId);
 };

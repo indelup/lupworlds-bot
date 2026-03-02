@@ -1,11 +1,21 @@
-import express from "express";
-import { startWebSocketClient, stopWebSocketClient, checkToken } from "./bot";
+import express, { Request, Response, NextFunction } from "express";
+import { startWebSocketClient, stopWebSocketClient, checkToken, isSessionActive } from "./bot";
 import { redisClient } from "./redis";
 import { attachOverlayServer } from "./broadcast";
 import "dotenv/config";
 
 const app = express();
 const port = 3000;
+
+app.use((req: Request, res: Response, next: NextFunction) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  if (req.method === "OPTIONS") {
+    res.sendStatus(204);
+    return;
+  }
+  next();
+});
 
 app.get("/", (req, res) => {
   res.send("Hola mundo");
@@ -40,7 +50,16 @@ app.get("/start", async (req, res) => {
   res.send("Bot inicializado!!");
 });
 
-app.get("/stop", (req, res) => {
+app.get("/status", (req: Request, res: Response) => {
+  const channelId = req.query.channelId as string;
+  if (!channelId) {
+    res.status(400).send("channelId is required");
+    return;
+  }
+  res.json({ active: isSessionActive(channelId) });
+});
+
+app.get("/stop", (req: Request, res: Response) => {
   const channelId = req.query.channelId as string;
   if (!channelId) {
     res.status(400).send("channelId is required");
