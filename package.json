@@ -13,9 +13,12 @@
     "@types/ws": "^8.18.1",
     "typescript": "^5.8.3"
   },
+  "overrides": {
+    "axios": "1.14.0"
+  },
   "dependencies": {
-    "@melda/lupworlds-types": "^0.1.3",
-    "axios": "^1.13.5",
+    "@melda/lupworlds-types": "^0.2.0",
+    "axios": "1.14.0",
     "dotenv": "^16.5.0",
     "express": "^5.1.0",
     "ioredis": "^5.6.1",

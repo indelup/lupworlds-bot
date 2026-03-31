@@ -79,9 +79,11 @@ const pickRandomItem = (bag: BannerBag): BannerBagItem | null => {
 
 const addToInventory = (
     data: PlayerWorldData,
-    type: "character" | "material",
+    type: "character" | "material" | "action",
     itemId: string,
 ): PlayerWorldData => {
+    // "action" items have no inventory slot yet — skip for now
+    if (type === "action") return data;
     const list: GachaItem[] =
         type === "character" ? data.characters : data.materials;
     const existing = list.find((i) => i.itemId === itemId);
